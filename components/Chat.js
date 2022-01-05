@@ -1,159 +1,199 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react'
+
+import ReactMarkdown from 'react-markdown'
+import gfm from 'remark-gfm'
 
 import styles from '../styles/Chat.module.css'
 
-const Chat = ({ supabase, session, currentUser }) => {
-    if(!currentUser) return null;
+const Chat = ({ currentUser, session, supabase }) => {
+  if (!currentUser) return null
 
-    const [messages, setMessages] = useState([])
-    const message = useRef("");
-    const [editingUsername, setEditingUsername] = useState(false);
-    const newUsername = useRef("")
-    const [users, setUsers] = useState({});
+  const [messages, setMessages] = useState([])
+  const [editingUsername, setEditingUsername] = useState(false)
+  const [users, setUsers] = useState({})
+  const message = useRef("")
+  const newUsername = useRef(currentUser.username)
 
-    const logout = evt => {
-        evt.preventDefault();
-        window.localStorage.clear();
-        window.location.reload();
-    }
-
-    const setUsername = async evt => {
-        evt.preventDefault();
-        const username = newUsername.current.value
-        console.log(newUsername.current.value)
-        console.log(currentUser)
-        await supabase
-            .from('user')
-            .insert([
-                { ...currentUser, username}
-            ], {upsert: true})
-        newUsername.current.value = "";
-        setEditingUsername(false);
-    }
-
-    useEffect(async () => {
-        const getMessages = async () => {
-            let { data: messages, error } = await supabase
-                .from('message')
-                .select('*')
-            setMessages(messages)
-        }
-        await getMessages()
-
-        const setupMessagesSubscription = async () => {
-
-            await supabase
-                .from('message')
-                .on('INSERT', payload => {
-                    // console.log(messages)
-                    setMessages(previous => [].concat(previous, payload.new))
-                })
-                .subscribe()            
-        }
-        await setupMessagesSubscription()
-
-        const setupUserSubscription = async () => {
-            await supabase  
-                .from('user')
-                .on('UPDATE', payload => {
-                    setUsers(users => {
-                        const user = users[payload.new.id];
-                        if(user) {
-                            return { ...users, [payload.new.id]: payload.new }
-                        } else {
-                            return users;
-                        }
-                    })
-                })
-                .subscribe()
-        }
-
-        await setupUserSubscription();
-    }, [])
-
-    const sendMessage = async evt => {
-        evt.preventDefault()
-
-        const content = message.current.value;
-        await supabase 
+  useEffect(async () => {
+    const getMessages = async () => {
+      const {
+        data: initialMessages,
+        error
+      } = await supabase
         .from('message')
+        .select(`
+          id,
+          content,
+          created_at,
+          user_id
+        `)
+
+
+      setMessages(initialMessages)
+    }
+
+    await getMessages()
+
+    const setupMessagesSubscription = async () => {
+      await supabase
+        .from('message')
+        .on("INSERT", ({ new: newMessage }) => setMessages(prevMessages => [].concat(prevMessages, [newMessage])))
+        .subscribe()
+    }
+
+    await setupMessagesSubscription()
+
+    const setupUsersSubscription = async () => {
+      await supabase
+        .from('user')
+        .on("UPDATE", ({ new: newUser }) => {
+          setUsers(users => {
+            if (users[newUser.id]) {
+              return Object.assign({}, users, { [newUser.id]: newUser })
+            } else {
+              return users
+            }
+          })
+        })
+        .subscribe()
+    }
+
+    await setupUsersSubscription()
+  }, [])
+
+  const getUsersFromSupabase = async (users, userIds) => {
+    const usersToGet = Array.from(userIds).filter(userId => !users[userId])
+    if (Object.keys(users).length && !usersToGet.length) return users
+    try {
+      const { data } = await supabase
+        .from('user')
+        .select('id, username')
+        .in('id', usersToGet)
+      const newUsers = {}
+      data.forEach(user => (newUsers[user.id] = user))
+      return Object.assign({}, users, newUsers)
+    } catch (err) {
+      console.log(err)
+      return users
+    }
+  }
+
+  useEffect(async () => {
+    async function getUsers() {
+      const userIds = new Set(messages.map(message => message.user_id))
+      const newUsers = await getUsersFromSupabase(users, userIds)
+      setUsers(newUsers)
+    }
+
+    await getUsers()
+
+    window.scrollTo(0, document.body.scrollHeight);
+  }, [messages])
+
+  const sendMessage = async evt => {
+    evt.preventDefault()
+
+    try {
+      const content = message.current.value
+
+      await supabase
+        .from("message")
         .insert([
-            { content, user_id: session.user.id}
+          { content, user_id: session.user.id }
         ])
 
-        message.current.value = "";
+      message.current.value = ""
+    } catch (err) {
+      console.log(err)
     }
+  }
 
-    useEffect(async () => {
-        const getUsers = async () => {
-            const userIds = new Set(messages.map(message => message.user_id));
-            const newUsers = await getUsersFromSupabase(users, userIds)
-            setUsers(newUsers);
-        }
-        await getUsers();
-    }, [messages]);
+  const username = user_id => {
+    const user = users[user_id]
+    return user ? user.username : session.user.email.split("@")[0]
+  }
 
-    const getUsersFromSupabase = async (users, userIds) => {
-        const usersToGet = Array.from(userIds).filter(id => !users[id])
-        if(Object.keys(users).length && usersToGet.length == 0) return users;
+  const setUsername = async evt => {
+    evt.preventDefault()
 
-        const { data } = await supabase
-                .from('user')
-                .select('id, username')
-                .in('id', usersToGet)
-        
-        const newUsers = {};
-        data.forEach(user => newUsers[user.id] = user);
-        return {...users, ...newUsers};
+    try {
+      const username = newUsername.current.value
+
+      await supabase
+        .from("user")
+        .insert([
+          { ...currentUser, username }
+        ], { upsert: true })
+
+      newUsername.current.value = ""
+      setEditingUsername(false)
+    } catch (err) {
+      console.log("Something went wrong")
     }
+  }
 
-    const username = user_id => {
-        const user = users[user_id]
-        if(!user) return "";
-        return user.username ? user.username : user.id
-    }
+  const signout = async () => {
+    window.localStorage.clear()
+    window.location.reload()
+  }
 
-    return (
+  if (process.env.NEXT_PUBLIC_ENV == "development") {
+    console.log({
+      currentUser,
+      messages,
+      session,
+      supabase,
+      users
+    })
+  }
+
+  return (
     <>
-        <div className={styles.header}>
-            <div className={styles.headerText}>
-                <h1>Supabase Chat</h1>
-                <p>Welcome, {currentUser.username ? currentUser.username : session.user.email} </p>
-            </div>
-            
-            <div className={styles.settings}>
-                {editingUsername ? (
-                    <form onSubmit={setUsername}>
-                        <input placeholder="new username" required ref={newUsername}></input>
-                        <button type="submit">Update username</button>
-                    </form> 
-                    ) : (
-                    <div>
-                        <button onClick={() => setEditingUsername(true)}>Edit Username</button>
-                        <button onClick={evt => logout(evt)}>Log out</button>
-                    </div>
-                    )
-                }
-            </div>
+      <div className={styles.header}>
+        <div className={styles.headerText}>
+          <h1>Supabase Chat</h1>
+          <p>
+            Welcome, {currentUser.username ? currentUser.username : session.user.email}
+          </p>
         </div>
-        <div className={styles.container}>
-            {messages.map(message => 
-                <div key={message.id} className={styles.messageContainer}>
-                    <span className={styles.user}>{username(message.user_id)}</span>
-                    <div>
-                        {message.content}
-                    </div>
-                    
+        <div className={styles.settings}>
+          {editingUsername ?
+            <form onSubmit={setUsername}>
+              <input type="text" required ref={newUsername} placeholder="New username" />
+              <button type="submit">Set username</button>
+            </form>
+            : (
+              <>
+                <div>
+                  <button onClick={() => setEditingUsername(true)}>Update username</button>
                 </div>
+                <div>
+                  <button onClick={signout}>Log out</button>
+                </div>
+              </>
             )}
         </div>
+      </div>
 
-        <form className={styles.chat} onSubmit={sendMessage}>
-            <input className={styles.messageInput} placeholder="Write your message" required ref={message}></input>
-            <button className={styles.submit} type="submit">Send Message</button>
-        </form>
+      <div className={styles.container}>
+        {messages.map(message =>
+          <div key={message.id} className={styles.messageContainer}>
+            <span className={styles.user}>{username(message.user_id)}</span> - <span>{message.created_at}</span>
+            <ReactMarkdown
+              remarkPlugins={[gfm]}
+              linkTarget={"_blank"}
+              children={message.content}
+            />
+          </div>
+        )}
+
+      </div>
+      <form className={styles.chat} onSubmit={sendMessage}>
+        <input className={styles.messageInput} required type="text" placeholder="Write your message" ref={message} />
+        <button className={styles.submit} type="submit">Send</button>
+      </form>
     </>
-    )
+  )
 }
 
 export default Chat
