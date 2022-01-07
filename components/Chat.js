@@ -6,13 +6,13 @@ import gfm from 'remark-gfm'
 import styles from '../styles/Chat.module.css'
 
 const Chat = ({ currentUser, session, supabase }) => {
-  if (!currentUser) return null
+//   if (!currentUser) return null
 
   const [messages, setMessages] = useState([])
   const [editingUsername, setEditingUsername] = useState(false)
   const [users, setUsers] = useState({})
   const message = useRef("")
-  const newUsername = useRef(currentUser.username)
+  const newUsername = useRef(currentUser?.username)
 
   useEffect(async () => {
     const getMessages = async () => {
@@ -153,7 +153,7 @@ const Chat = ({ currentUser, session, supabase }) => {
         <div className={styles.headerText}>
           <h1>Supabase Chat</h1>
           <p>
-            Welcome, {currentUser.username ? currentUser.username : session.user.email}
+            Welcome, {currentUser?.username ? currentUser?.username : session.user.email}
           </p>
         </div>
         <div className={styles.settings}>
