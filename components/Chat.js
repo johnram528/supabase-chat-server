@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 
-import ReactMarkdown from 'react-markdown'
-import gfm from 'remark-gfm'
-
 import styles from '../styles/Chat.module.css'
 
 const Chat = ({ currentUser, session, supabase }) => {
@@ -179,11 +176,7 @@ const Chat = ({ currentUser, session, supabase }) => {
         {messages.map(message =>
           <div key={message.id} className={styles.messageContainer}>
             <span className={styles.user}>{username(message.user_id)}</span> - <span>{message.created_at}</span>
-            <ReactMarkdown
-              remarkPlugins={[gfm]}
-              linkTarget={"_blank"}
-              children={message.content}
-            />
+            <p>{message.content}</p>
           </div>
         )}
 
